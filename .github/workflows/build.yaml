@@ -1,0 +1,130 @@
+name: "Build fbx-udim-unpack"
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+    tags:
+      - "v*"
+
+concurrency:
+  group: ci-${{github.actor}}-${{github.head_ref || github.run_number}}-${{github.ref}}-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022] # , ubuntu-20.04, macos-14]
+        include:
+          - os: windows-2022
+            sdk_url: "https://github.com/V-Sekai/FBXSDK-Windows/archive/refs/tags/2020.2.zip"
+            sdk_license: "sdk/Windows/2020.2/License.rtf"
+            build_command: |
+              find sdk -type f -name '*.zst' -exec sh -c 'zstd -d "{}" -o "${0%.zst}"' {} \;
+              cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+              cmake --build build
+            run_command: ./build/Debug/fbx-udim-unpack.exe --help
+            artifact_name: fbx-udim-unpack-windows-x86_64
+            artifact_path: build/Debug/fbx-udim-unpack.exe
+          # - os: ubuntu-20.04
+          #   sdk_url: "https://github.com/V-Sekai/FBXSDK-Linux/archive/refs/tags/2020.2.zip"
+          #   sdk_license: "sdk/Linux/2020.2/License.txt"
+          #   build_command: |
+          #     find sdk -type f -name '*.zst' -exec sh -c 'zstd -d "{}" -o "${0%.zst}"' {} \;
+          #     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          #     cmake --build build
+          #     run_command: ./build/fbx-udim-unpack --help
+          #     artifact_name: fbx-udim-unpack-linux-x86_64
+          #     artifact_path: build/fbx-udim-unpack
+          # - os: macos-14
+          #   sdk_url: "https://github.com/V-Sekai/FBXSDK-Darwin/archive/refs/tags/2020.2.zip"
+          #   sdk_license: "sdk/Darwin/2020.2/License.rtf"
+          #   build_command: |
+          #     find sdk -type f -name '*.zst' -exec sh -c 'zstd -d "{}" -o "${0%.zst}"' {} \;
+          #     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          #     cmake --build build
+          #   run_command: ./build/fbx-udim-unpack --help
+          #   artifact_name: fbx-udim-unpack-macos-x86_64
+          #   artifact_path: build/fbx-udim-unpack
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install 7z
+        run: |
+          if [[ $RUNNER_OS == "Windows" ]]; then
+            choco install 7zip
+          elif [[ $RUNNER_OS == "Linux" ]]; then
+            sudo apt-get install p7zip-full
+          else
+            brew install p7zip
+          fi
+        shell: bash
+
+      - name: Setup filter.lfs.required
+        run: |
+          git config --global filter.lfs.required false
+        shell: bash
+
+      - name: Setup filter.lfs.smudge
+        run: |
+          git config --global filter.lfs.smudge "git-lfs smudge --skip %f"
+        shell: bash
+
+      - name: Setup filter.lfs.process
+        run: |
+          git config --global filter.lfs.process "git-lfs filter-process --skip"
+        shell: bash
+
+      - name: Fetch sdk
+        run: |
+          curl -O -L "${{ matrix.sdk_url }}"
+        shell: bash
+
+      - name: Install 7z extract
+        run: |
+          7z x 2020.2.zip
+        shell: bash
+
+      - name: Extract and move SDK
+        run: |
+          mkdir -p sdk
+          7z x 2020.2.zip -osdk_temp
+          mv sdk_temp/*/* .
+        shell: bash
+
+      - name: CMake configure and build
+        run: ${{ matrix.build_command }}
+        shell: bash
+
+      - name: Run fbx-udim-unpack help
+        run: ${{ matrix.run_command }}
+        shell: bash
+
+      - name: Prepare artifacts
+        run: |
+          export TARGET=${{ matrix.artifact_name }}
+          mkdir $TARGET
+          cp ${{ matrix.sdk_license }} $TARGET/FBX-SDK-License.txt
+          cp LICENSE $TARGET/fbx-udim-unpack-License.txt
+          cp ${{ matrix.artifact_path }} $TARGET/${{ matrix.artifact_name }}
+          7z a -r $TARGET.zip $TARGET
+        shell: bash
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ matrix.artifact_name }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}/*
