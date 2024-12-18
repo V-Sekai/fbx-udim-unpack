@@ -3,7 +3,7 @@
 #
 cmake_minimum_required (VERSION 3.8)
 
-project ("UdimUnpack")
+project ("fbx-udim-unpack")
 
 # Use relative paths
 # This is mostly to reduce path size for command-line limits on windows
@@ -18,13 +18,9 @@ if (NOT FBXSDK_FOUND)
     message(FATAL_ERROR "FBX SDK not found!")
 endif()
 
-
-
 set (SRC_FILES
 	UdimUnpack.cpp
 )
-
-
 
 add_executable (${PROJECT_NAME} ${SRC_FILES})
 target_include_directories(${PROJECT_NAME} PRIVATE 
